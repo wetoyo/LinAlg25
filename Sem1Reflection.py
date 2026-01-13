@@ -18,7 +18,7 @@ def launch_visualizer(matrix, vector):
     CENTER = np.array([WIDTH // 2, HEIGHT // 2])
     SCALE = 80
     FPS = 60
-    ANIM_TIME = 2.0
+    ANIM_TIME = 2.5
 
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     clock = pygame.time.Clock()
@@ -26,38 +26,48 @@ def launch_visualizer(matrix, vector):
     # Colors
     WHITE = (245, 245, 245)
     GRAY = (220, 220, 220)
-    BLACK = (0, 0, 0)
-    BLUE = (0, 102, 204)
-    RED = (204, 0, 0)
+    AXIS_COLOR = (80, 80, 80)
+    BLUE = (0, 102, 204)    # Original Vector
+    RED = (204, 0, 0)      # Transformed Vector
+    I_HAT_COLOR = (0, 153, 0) # Green for i
+    J_HAT_COLOR = (255, 128, 0) # Orange for j
 
     def to_screen(v):
-        return CENTER + np.array([v[0], -v[1]]) * SCALE
+        return (CENTER + np.array([v[0], -v[1]]) * SCALE).astype(int)
 
-    def draw_grid():
-        for i in range(-10, 11):
-            pygame.draw.line(screen, GRAY, to_screen(np.array([i, -10])), to_screen(np.array([i, 10])), 1)
-            pygame.draw.line(screen, GRAY, to_screen(np.array([-10, i])), to_screen(np.array([10, i])), 1)
-
-        pygame.draw.line(screen, BLACK, to_screen(np.array([-10, 0])), to_screen(np.array([10, 0])), 3)
-        pygame.draw.line(screen, BLACK, to_screen(np.array([0, -10])), to_screen(np.array([0, 10])), 3)
-
-    def draw_vector(v, color):
-        pygame.draw.line(screen, color, to_screen(np.zeros_like(v)), to_screen(v), 4)
+    def draw_vector(v, color, width=4, alpha=255):
+        start_pos = to_screen(np.array([0, 0]))
+        end_pos = to_screen(v)
+        if np.array_equal(start_pos, end_pos): return
+        
+        # Create a temporary surface for alpha if needed
+        if alpha < 255:
+            temp_surface = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+            color_with_alpha = (*color, alpha)
+            pygame.draw.line(temp_surface, color_with_alpha, start_pos, end_pos, width)
+        else:
+            pygame.draw.line(screen, color, start_pos, end_pos, width)
+        
         # Draw arrow head
-        v_screen = to_screen(v)
-        origin_screen = to_screen(np.zeros_like(v))
-        if not np.array_equal(v_screen, origin_screen):
-            direction = (v_screen - origin_screen)
-            norm = np.linalg.norm(direction)
-            if norm > 0:
-                unit = direction / norm
-                # Finds dir perp the vector to make the triangle
-                perp = np.array([-unit[1], unit[0]])
-                side1 = v_screen - unit * 15 + perp * 7
-                side2 = v_screen - unit * 15 - perp * 7
-                pygame.draw.polygon(screen, color, [v_screen, side1, side2])
+        direction = v
+        norm = np.linalg.norm(direction)
+        if norm > 0:
+            unit = direction / norm
+            perp = np.array([-unit[1], unit[0]])
+            
+            tip = end_pos
+            side1 = to_screen(v - unit * 0.2 + perp * 0.1)
+            side2 = to_screen(v - unit * 0.2 - perp * 0.1)
+            
+            if alpha < 255:
+                pygame.draw.polygon(temp_surface, color_with_alpha, [tip, side1, side2])
+                screen.blit(temp_surface, (0, 0))
+            else:
+                pygame.draw.polygon(screen, color, [tip, side1, side2])
 
-    transformed = matrix @ vector
+    identity = np.eye(2)
+    i_hat = np.array([1, 0])
+    j_hat = np.array([0, 1])
 
     t = 0.0
     running = True
@@ -69,13 +79,39 @@ def launch_visualizer(matrix, vector):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-        # Lerp between original and transformed
-        current = (1 - t) * vector + t * transformed
-
+        
+        # Interpolated Matrix
+        current_matrix = (1 - t) * identity + t * matrix
+        
         screen.fill(WHITE)
-        draw_grid()
-        draw_vector(vector, BLUE)
-        draw_vector(current, RED)
+
+        # Draw Animated Grid
+        grid_alpha = 100 # Subtler grid
+        temp_grid_surface = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        for i in range(-10, 11):
+            p1 = current_matrix @ np.array([i, -10])
+            p2 = current_matrix @ np.array([i, 10])
+            pygame.draw.line(temp_grid_surface, (*GRAY, grid_alpha), to_screen(p1), to_screen(p2), 1)
+            
+            p3 = current_matrix @ np.array([-10, i])
+            p4 = current_matrix @ np.array([10, i])
+            pygame.draw.line(temp_grid_surface, (*GRAY, grid_alpha), to_screen(p3), to_screen(p4), 1)
+        screen.blit(temp_grid_surface, (0, 0))
+
+        # Draw Main Axes (transformed)
+        pygame.draw.line(screen, AXIS_COLOR, to_screen(current_matrix @ np.array([-10, 0])), to_screen(current_matrix @ np.array([10, 0])), 2)
+        pygame.draw.line(screen, AXIS_COLOR, to_screen(current_matrix @ np.array([0, -10])), to_screen(current_matrix @ np.array([0, 10])), 2)
+
+        # Draw Basis Vectors
+        draw_vector(current_matrix @ i_hat, I_HAT_COLOR, width=3, alpha=50)
+        draw_vector(current_matrix @ j_hat, J_HAT_COLOR, width=3, alpha=50)
+
+        # Draw Original Vector
+        draw_vector(vector, BLUE, width=2, alpha=30) 
+
+        # Draw Current Transforming Vector
+        current_vector = current_matrix @ vector
+        draw_vector(current_vector, RED, width=5, alpha=255)
 
         pygame.display.flip()
 
@@ -132,7 +168,7 @@ class App:
                   padx=20, pady=10).pack()
 
     def submit(self):
-        # Loop through and fill matrix and vector entries
+        # Loop through and fill Matrix and Vector entries
         try:
             matrix_data = []
             for r in range(2):
